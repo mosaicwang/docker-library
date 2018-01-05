@@ -2,6 +2,10 @@
 
 kubernetes 相关 images 同步
 
+# 2018.1.5
+
+* 修改k8s-dns三个版本为1.14.7。这个版本是kubernetes v1.9.0用的
+
 # 2018.1.4
 
 * 修改etcd的Dockerfile为3.1.10。这个版本是kubernetes v1.9.0用的
