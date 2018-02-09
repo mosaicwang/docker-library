@@ -2,6 +2,10 @@
 
 kubernetes 相关 images 同步
 
+# 2018.2.9
+
+* 新增echoserver项目,显示请求的源IP。目前版本是k8s.gcr.io/echoserver:1.4
+
 # 2018.2.2
 
 * 新增google-samples项目,提供helloworld功能。目前版本是gcr.io/google-samples/node-hello:1.0
