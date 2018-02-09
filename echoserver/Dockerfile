@@ -1,2 +1,2 @@
-FROM k8s.gcr.io/echoserver:1.4
+FROM gcr.io/google-containers/echoserver-amd64:1.8
 MAINTAINER Mosaicwang <mosaicwang@gmail.com>
