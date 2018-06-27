@@ -2,6 +2,9 @@
 
 kubernetes 相关 images 同步
 
+# 2018.6.27
+* 新增nginx-ingress-controller .当前版本是0.9.0-beta.15
+
 # 2018.2.9
 
 * 将echoserver版本升级到amd64的1.8
