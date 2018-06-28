@@ -2,6 +2,9 @@
 
 kubernetes 相关 images 同步
 
+# 2016.6.28
+* 新增defaultbackend-amd64镜像。当前版本是1.4
+
 # 2018.6.27
 * 新增nginx-ingress-controller .当前版本是0.9.0-beta.15
 * k8s核心模块更新到v1.10.5版本,包括:kube-apiserver-amd64,kube-controller-manager-amd64,kube-proxy-amd64,kube-scheduler-amd64,kube-aggregator_amd64
