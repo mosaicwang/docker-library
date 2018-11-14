@@ -12,6 +12,7 @@ kubernetes 相关 images 同步
 - kube-scheduler-amd64:v1.12.2
 - pause-amd64:3.1
 - kubernetes-dashboard-amd64:v1.10.0
+- flannel:v0.10.0-amd64
 
 # 2016.6.28
 * 新增defaultbackend-amd64镜像。当前版本是1.4
