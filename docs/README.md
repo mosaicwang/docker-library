@@ -2,6 +2,17 @@
 
 kubernetes 相关 images 同步
 
+# 2018.11.14
+* 更新kubernetes为1.12,因此同步更新镜像
+
+- etcd-amd64:3.2.24
+- kube-apiserver-amd64:v1.12.2
+- kube-controller-manager-amd64:v1.12.2
+- kube-proxy-amd64:v1.12.2
+- kube-scheduler-amd64:v1.12.2
+- pause-amd64:3.1
+- kubernetes-dashboard-amd64:v1.10.0
+
 # 2016.6.28
 * 新增defaultbackend-amd64镜像。当前版本是1.4
 
