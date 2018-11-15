@@ -2,6 +2,10 @@
 
 kubernetes 相关 images 同步
 
+# 2018.11.15
+
+* 新增coredns,版本:1.2.2(因为kubernetes1.12需要这个组件)
+
 # 2018.11.14
 * 更新kubernetes为1.12,因此同步更新镜像
 
