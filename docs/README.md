@@ -12,6 +12,8 @@ kubernetes 相关 images 同步
 - k8s-dns-dnsmasq-nanny-amd64:1.14.13
 - k8s-dns-sidecar-amd64:1.14.13
 
+* 免密提交GIT
+
 # 2018.11.14
 * 更新kubernetes为1.12,因此同步更新镜像
 
