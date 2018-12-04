@@ -2,6 +2,9 @@
 
 kubernetes 相关 images 同步
 
+# 2018.12.4
+- 新增 node-problem-detector
+
 # 2018.11.15
 
 新增coredns,版本:1.2.2(因为kubernetes1.12需要这个组件)
