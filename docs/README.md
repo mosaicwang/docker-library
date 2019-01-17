@@ -2,6 +2,21 @@
 
 kubernetes 相关 images 同步
 
+# 2019.1.18
+
+-新增k8s_setup脚本
+此脚本基于Centos7,能自动设置部署k8s的基础环境
+
+	检查当前操作系统的配置情况
+	./k8s_setup --check
+	
+	安装基础包和docker
+	./k8s_setup --setup
+	
+	在安装了基础包和docker后，安装kubeadm，并拉取基础镜像
+  ./k8s_setup --post_install
+
+
 # 2018.12.4
 - 新增 node-problem-detector
 
