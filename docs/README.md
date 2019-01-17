@@ -14,7 +14,7 @@ kubernetes 相关 images 同步
 	./k8s_setup --setup
 	
 	在安装了基础包和docker后，安装kubeadm，并拉取基础镜像
-  ./k8s_setup --post_install
+	./k8s_setup --post_install
 
 
 # 2018.12.4
