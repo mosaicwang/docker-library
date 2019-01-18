@@ -5,6 +5,7 @@
 #2018.1.18 0:17 v1.1
 
 k8s_ver=v1.13.2
+ntp_server=192.168.1.8
 
 issetup=-1
 ispost_setup=-1
@@ -170,6 +171,28 @@ yum makecache fast > /dev/nul
 yum install -y -q curl net-tools telnet yum-utils psmisc unzip expect rsync chrony bash-completion ebtables ethtool wget socat > /dev/nul
 yum install -y -q ipset ipvsadm > /dev/nul
 yum install -y -q yum-utils device-mapper-persistent-data lvm2 > /dev/nul
+
+#7.1设置NTP
+myanswer=n
+
+read -p "是否设置NTP服务器为$ntp_server ?(Y/N)" myanswer
+
+if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
+
+	if [ -f /etc/chrony.conf.$ls_curdate ]; then
+		rm -f /etc/chrony.conf
+		cp -p /etc/chrony.conf.$ls_curdate /etc/chrony.conf
+	fi
+	
+	cp -p /etc/chrony.conf /etc/chrony.conf.$ls_curdate
+	
+	sed -i "/server 0.centos/ s/0.centos.pool.net.org/${ntp_server}/" /etc/chrony.conf
+	sed -i '/server 1.centos/ s/^/#/' /etc/chrony.conf
+	sed -i '/server 2.centos/ s/^/#/' /etc/chrony.conf
+	sed -i '/server 3.centos/ s/^/#/' /etc/chrony.conf
+
+	echo "NTP服务器是:$ntp_server"
+fi
 
 #8.安装docker
 
