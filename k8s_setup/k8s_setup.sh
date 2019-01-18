@@ -1,6 +1,10 @@
 #!/usr/bin/bash
 
 #在kubeadm初始化k8s集群前，设置必要的环境和参数
+#2018.1.18 11:07 v1.2
+#2018.1.18 0:17 v1.1
+
+k8s_ver=v1.13.2
 
 issetup=-1
 ispost_setup=-1
@@ -322,25 +326,34 @@ fi
 
 #输入本机IP地址
 li_count=0
+ls_allip=()
 
-while [ $li_count -eq 0 ]
+ls_allip[0]=NOIP
+
+for ls_info in `ip -h -4 -o address | gawk '{print $4}' |sed 's/\// /'|gawk '{print $1}'`
 do
-
-read -p "请输入本机IP地址:" myip
-
-#确认输入是否有效
-li_count=`ip -h -4 -o address |grep $myip |wc -l`
-
-if [ $li_count -eq 0 ]; then
-	echo
-	echo -e "\t输入的IP地址无效。请重新输入"
-fi
-
+		
+  li_count=$(($li_count+1))
+    
+	ls_allip[${li_count}]=$ls_info
+		
+	ls_dispinfo="$li_count: ${ls_allip[${li_count}]}"
+	
+	echo $ls_dispinfo
+	
 done
+
+mychoice=zz
+
+read -p "请选择本机IP:(1-${li_count}):" mychoice
+
+myip=${ls_allip[$mychoice]}
+
+echo -e "\t本机IP是$myip"
 
 
 #1.设置kubernetes仓库
-echo -e "\t安装kubeadm v1.13.2的3个核心组件..."
+echo -e "\t安装kubeadm ${k8s_ver} 的3个核心组件..."
 
 cat <<EOF > /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
@@ -354,7 +367,9 @@ EOF
 
 yum makecache fast > /dev/nul
 
-yum install -y -q kubeadm-1.13.2 kubectl-1.13.2 kubelet-1.13.2 > /dev/nul
+yum install -y -q kubeadm kubectl kubelet > /dev/nul
+
+systemctl enable kubelet
 
 echo -e "\t安装kubeadm的3个核心组件完毕"
 
@@ -371,11 +386,13 @@ kubeadm config print init-defaults > $mydir/kubeadm.conf
 #3.2替换参数
 sed -i 's/imageRepository: k8s.gcr.io/imageRepository: registry.aliyuncs.com\/google_containers/' $mydir/kubeadm.conf
 
-sed -i 's/kubernetesVersion: v1.13.0/kubernetesVersion: v1.13.2/' $mydir/kubeadm.conf
+sed -i "s/kubernetesVersion: v1.13.0/kubernetesVersion: ${k8s_ver}/" $mydir/kubeadm.conf
 
 sed -i "s/advertiseAddress: 1.2.3.4/advertiseAddress: ${myip}/" $mydir/kubeadm.conf
 
 sed -i 's/podSubnet: ""/podSubnet: 10.244.0.0\/16/' $mydir/kubeadm.conf
+
+sed -i 's/ttl: 24h0m0s/ttl: 0/' $mydir/kubeadm.conf
 
 #3.3开始拉取镜像
 kubeadm config images pull --config $mydir/kubeadm.conf
