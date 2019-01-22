@@ -8,23 +8,44 @@ k8s_ver=v1.13.2
 ntp_server=192.168.1.8
 
 issetup=-1
-ispost_setup=-1
 
 li_iscentos=0
 
 ls_curdate=`date +%Y%m%d`
 
+ls_allstep=(setup post_setup install_flannel install_dashboard)
+
 #1.2得到当前脚本所在目录
 mydir=$(dirname $(readlink -f "$0"))
+
+#配置信息
+cfgfile=$mydir/myhost.cfg
+
+#存放步骤信息
+stepfile=$mydir/myhost.step
 
 #---------------函数定义----------------
 
 function iscentos() {
 	#判断是否为CentOS
 	if [ -f /etc/centos-release ]; then
-		li_iscentos=1
+		ls_mainver=`cat /etc/centos-release | gawk -F . '{print $1}'|gawk '{print $4}'`
+		
+		if [ $ls_mainver -eq 7 ]; then
+			li_iscentos=1
+		else
+			echo
+			echo -e "\tCentOS的版本必须是7。当前版本是$ls_mainver"
+			exit 0
+		fi
 	else
 		li_iscentos=0
+		
+		#如果存在/etc/os-relase文件,则显示此文件内容
+		echo -e "\t你的操作系统如下所示:"
+		if [ -f /etc/os-release ]; then
+			cat /etc/os-release
+		fi
 	fi
 }
 
@@ -36,22 +57,56 @@ echo "\
 	
 	OPTIONS如下:
 	
-	--setup       设置基础参数
-	--post_install  安装kubeadm等关键组件
-	--check       检查参数是否设置(缺省)
-	--help        显示脚本用法
+	--check             检查系统配置情况(缺省)
+	--setup             设置基础参数
+	--post_setup        安装kubeadm等关键组件
+	--install_flannel   安装flannel插件
+	--install_dashboard 安装仪表盘
+	--show_token				显示登录仪表盘需要的TOKEN值
+	--help              显示脚本的用法
 	"
 }
 
 function setup_env() {
 
-	#如果同时设置了命令行参数--post_setup,则报错
-  if [ $ispost_setup -eq 1 ]; then
-  	echo -e "\t命令行参数错误。只能设置一个操作"
-  	exit 1
-  fi
-  
+	#如果步骤信息中已经存在当前步骤，则报错并退出
+	if [ -f $stepfile ]; then
+	
+		li_count=`cat $stepfile |grep -w "setup" |wc -l`
+		
+		if [ $li_count -eq 1 ]; then
+			echo
+			echo -e "\t不能重复执行setup操作"
+			echo
+			exit 1
+		fi
+	fi
+
 	echo -e "\t开始设置..."
+	
+	#1.2得到本机IP和网卡，由用户确认后保存到myhost.cfg文件
+	ls_ip=`ip -h -4 -o address |gawk '{print $4}' |grep -v 127.0|sed 's/\// /'|gawk '{print $1}'`
+	
+	echo
+	read -p "        本机的IP地址是$ls_ip吗?(Y/N)" myanswer
+	
+	if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
+		echo "ip=$ls_ip" >> $cfgfile
+	else
+		echo -e "\t无法得到本机IP地址。程序退出"
+		exit 1
+	fi
+	
+	#根据IP地址得到网卡名称
+	ls_iface=`ip -h -4 -o address | grep $ls_ip |gawk '{print $2}'`
+	echo "iface=$ls_iface" >> $cfgfile
+
+#如果未设置DNS，则设置
+li_count=`cat /etc/resolv.conf |grep nameserver|wc -l`
+
+if [ $li_count -lt 1 ]; then
+	echo "nameserver 61.139.2.69" >> /etc/resolv.conf
+fi	
 
 #1.禁止swap:修改 /etc/fstab 文件，注释掉 SWAP 的自动挂载
 
@@ -70,13 +125,22 @@ echo -e "\t禁止swap"
 #2.开放端口
 #master:TCP:6443,2379-2380,10250-10252
 #Worder:TCP:10250,30000-32767
-firewall-cmd --permanent --add-port=6443/tcp
-firewall-cmd --permanent --add-port=2379-2380/tcp
-firewall-cmd --permanent --add-port=10250-10252/tcp
-firewall-cmd --permanent --add-port=30000-32767/tcp
-firewall-cmd --reload
+firewall-cmd --permanent --add-port=6443/tcp >/dev/nul
+firewall-cmd --permanent --add-port=2379-2380/tcp >/dev/nul
+firewall-cmd --permanent --add-port=10250-10252/tcp >/dev/nul
+firewall-cmd --permanent --add-port=30000-32767/tcp >/dev/nul
+#FLANNEL #vxlan:8472/udp; udp:8285/udp
+firewall-cmd --permanent --add-port=8472/udp >/dev/nul
+firewall-cmd --permanent --add-port=8285/udp >/dev/nul
+firewall-cmd --reload >/dev/nul
 
-echo -e "\t开放防火墙的相关端口"
+
+
+#禁用防火墙
+systemctl stop firewalld >/dev/nul
+systemctl disable firewalld >/dev/nul
+
+echo -e "\t禁用防火墙"
 
 #3.设置SELinux在permissive模式
 if [ -f /etc/selinux/config.$ls_curdate ];then
@@ -100,7 +164,7 @@ echo "net.bridge.bridge-nf-call-iptables = 1" >>/etc/sysctl.d/k8s.conf
 echo "net.ipv4.ip_forward = 1" >>/etc/sysctl.d/k8s.conf
 
 modprobe br_netfilter
-sysctl -p /etc/sysctl.d/k8s.conf
+sysctl -p /etc/sysctl.d/k8s.conf > /dev/null
 
 echo -e "\t设置网络参数"
 
@@ -109,13 +173,13 @@ echo -e "\t设置网络参数"
 ls_hostname=`hostname`
 
 #5.1显示当前主机名，提示是否需要改名
-read -p "当前主机名是【$ls_hostname】,需要修改主机名吗?(Y/N)" myanswer
+read -p "        当前主机名是【$ls_hostname】,需要修改主机名吗?(Y/N)" myanswer
 
 #5.2如果输入选择是,则提示输入新主机名
 if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
-	read -p "请输入新的主机名:" ls_newhostname
+	read -p "        请输入新的主机名:" ls_newhostname
 	
-	read -p "新的主机名是【$ls_newhostname】,确认要修改吗?(Y/N)" myanswer
+	read -p "        新的主机名是【$ls_newhostname】,确认要修改吗?(Y/N)" myanswer
 	
 	#5.3提示是否修改主机名；如果是,则执行修改；否则继续
 	if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
@@ -133,7 +197,7 @@ fi
 
 #本机ip
 ls_ip=`ip -h -4 -o address |gawk '{print $4}' |grep -v 127.0|sed 's/\// /'|gawk '{print $1}'`
-
+ls_hostname=`hostname`
 
 
 #修改/etc/hosts文件的内容:新增一行:本机IP和主机名
@@ -175,6 +239,7 @@ yum install -y -q yum-utils device-mapper-persistent-data lvm2 > /dev/nul
 #7.1设置NTP
 myanswer=n
 
+echo
 read -p "是否设置NTP服务器为$ntp_server ?(Y/N)" myanswer
 
 if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
@@ -186,7 +251,7 @@ if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
 	
 	cp -p /etc/chrony.conf /etc/chrony.conf.$ls_curdate
 	
-	sed -i "/server 0.centos/ s/0.centos.pool.net.org/${ntp_server}/" /etc/chrony.conf
+	sed -i "/server 0.centos/ s/0.centos.pool.ntp.org/${ntp_server}/" /etc/chrony.conf
 	sed -i '/server 1.centos/ s/^/#/' /etc/chrony.conf
 	sed -i '/server 2.centos/ s/^/#/' /etc/chrony.conf
 	sed -i '/server 3.centos/ s/^/#/' /etc/chrony.conf
@@ -208,21 +273,21 @@ systemctl start docker
 
 echo -e "\t安装Docker-ce-18.06.1完毕"
 
+echo "setup" >>$stepfile
+
 #10.提示:是否需要重启服务器? 如果选择Y,则重启服务器,否则退出
 read -p "设置完毕。需要重启服务器才生效。是否现在重启(Y/N)" myanswer
 
 if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
 	reboot
+else
+	echo
+	echo "执行reboot重启服务器"
 fi
 
 }
 
 function check_env() {
-
-if [ $ispost_setup -eq 1 ]; then
-  	echo -e "\t命令行参数错误。只能设置一个操作"
-  	exit 1
-  fi
 
 echo -e "\t开始检查设置情况..."
 
@@ -324,15 +389,35 @@ else
 	echo -e "\t【未启动】Docker服务"
 fi
 
+#显示已经完成的步骤
+if [ -f $stepfile ]; then
+	echo -e "\t已经完成的步骤:"
+	for li_step in `cat $stepfile`
+	do
+		echo -e "\t  - $li_step"
+	done
+else
+	echo
+	echo -e "\t请执行./k8s_setup.sh --setup"
+	echo
+fi
+
 }
 
 #安装kubeadm等核心组件
 function post_setup() {
 
-if [ $issetup -ge 0 ]; then
-  	echo -e "\t命令行参数错误。只能设置一个操作"
-  	exit 1
-fi
+if [ -f $stepfile ]; then
+	
+		li_count=`cat $stepfile |grep -w "post_setup" |wc -l`
+		
+		if [ $li_count -eq 1 ]; then
+			echo
+			echo -e "\t不能重复执行post_setup操作"
+			echo
+			exit 1
+		fi
+	fi
 
 ls_count=`systemctl is-active docker`
 
@@ -347,32 +432,7 @@ if [ ! -f $mydir/pause-amd64.tar ]; then
 	exit 1
 fi
 
-#输入本机IP地址
-li_count=0
-ls_allip=()
-
-ls_allip[0]=NOIP
-
-for ls_info in `ip -h -4 -o address | gawk '{print $4}' |sed 's/\// /'|gawk '{print $1}'`
-do
-		
-  li_count=$(($li_count+1))
-    
-	ls_allip[${li_count}]=$ls_info
-		
-	ls_dispinfo="$li_count: ${ls_allip[${li_count}]}"
-	
-	echo $ls_dispinfo
-	
-done
-
-mychoice=zz
-
-read -p "请选择本机IP:(1-${li_count}):" mychoice
-
-myip=${ls_allip[$mychoice]}
-
-echo -e "\t本机IP是$myip"
+myip=`cat $cfgfile | grep ip|gawk -F '=' '{print $2}'`
 
 
 #1.设置kubernetes仓库
@@ -392,7 +452,7 @@ yum makecache fast > /dev/nul
 
 yum install -y -q kubeadm kubectl kubelet > /dev/nul
 
-systemctl enable kubelet
+systemctl enable kubelet > /dev/nul
 
 echo -e "\t安装kubeadm的3个核心组件完毕"
 
@@ -415,10 +475,12 @@ sed -i "s/advertiseAddress: 1.2.3.4/advertiseAddress: ${myip}/" $mydir/kubeadm.c
 
 sed -i 's/podSubnet: ""/podSubnet: 10.244.0.0\/16/' $mydir/kubeadm.conf
 
-sed -i 's/ttl: 24h0m0s/ttl: 0/' $mydir/kubeadm.conf
+#sed -i 's/serviceSubnet: 10.96.0.0\/12/serviceSubnet: 10.244.0.0\/12/' $mydir/kubeadm.conf
+
+sed -i 's/ttl: 24h0m0s/ttl: "0"/' $mydir/kubeadm.conf
 
 #3.3开始拉取镜像
-kubeadm config images pull --config $mydir/kubeadm.conf
+kubeadm config images pull --config $mydir/kubeadm.conf > /dev/nul
 
 ls_images=(apiserver controller-manager proxy scheduler coredns etcd pause)
 #3.4检查镜像文件是否拉取成功
@@ -432,9 +494,232 @@ do
 
 done
 
+#预先修改.bashrc文件的内容
+echo "export KUBECONFIG=/etc/kubernetes/admin.conf " >>~/.bashrc
+echo "source <(kubectl completion bash)" >>~/.bashrc
+source ~/.bashrc
+~/.bashrc
+
+echo "post_setup" >>$stepfile
+
 echo -e "\t拉取k8s基础镜像完毕"
 
+echo
+echo -e "\t部署MASTER节点执行:"
+echo
+echo -e "\tsource ~/.bashrc" 
+echo -e "\tkubeadm init --config $mydir/kubeadm.conf"
+echo
+
 }
+
+#安装flannel插件
+function install_flannel() {
+
+	if [ -f $stepfile ]; then
+	
+		li_count=`cat $stepfile |grep -w "install_flannel" |wc -l`
+		
+		if [ $li_count -eq 1 ]; then
+			echo
+			echo -e "\t不能重复执行install_flannel操作"
+			echo
+			exit 1
+		fi
+	fi
+	
+	echo -e "\t安装flannel插件..."
+	
+	ls_iface=`cat $cfgfile | grep iface|gawk -F '=' '{print $2}'`
+	
+	#修改kube-flannel.yml中的iface值
+	cp $mydir/kube-flannel.yml.old $mydir/kube-flannel.yml
+	
+	sed -i "/iface/ s/iface=wht/iface=${ls_iface}/" $mydir/kube-flannel.yml
+	
+	#装载镜像
+	echo -e "\t装载flannel镜像..."
+	
+	docker load --input $mydir/flannel_v0.10.0-amd64.tar > /dev/nul
+	
+	#执行部署
+	echo -e "\t部署flannel镜像..."
+	kubectl apply -f $mydir/kube-flannel.yml > /dev/nul
+	
+	#检查容器的部署结果
+	li_sec=0
+	ls_status=error
+	
+	echo -e "\t检查flannel镜像的部署结果..."
+	
+	while [ $li_sec -le 60 ]
+	do
+		ls_status=`kubectl get pods -n kube-system |grep kube-flannel |gawk '{print $3}'`
+		
+		if [ $ls_status = 'Running' ]; then
+			break
+		else
+			#延迟5秒
+			sleep 5
+			li_sec=$(($li_sec+5))
+		fi
+		
+	done
+	
+	if [ $ls_status = 'Running' ]; then 
+	
+		echo -e "\t安装flannel插件成功"
+	
+		echo "install_flannel" >>$stepfile
+	else
+		
+		echo -e "\t安装flannel插件疑是失败"
+		echo -e "\t请执行kubectl get pods -n kube-system命令来查看flannel的状态"
+	fi
+	
+	
+}
+
+#安装仪表盘
+function install_dashboard() {
+	
+	if [ -f $stepfile ]; then
+	
+		li_count=`cat $stepfile |grep -w "install_dashboard" |wc -l`
+		
+		if [ $li_count -eq 1 ]; then
+			echo
+			echo -e "\t不能重复执行install_dashboard操作"
+			echo
+			exit 1
+		fi
+	fi
+	
+	echo -e "\t安装仪表盘..."
+	
+	ls_ip=`cat $mydir/myhost.cfg |grep ip|gawk -F = '{print $2}'`
+	
+	dashboard_dir=$mydir/dashboard
+	
+	if [ ! -d $dashboard_dir ]; then
+		mkdir -p $dashboard_dir
+	fi
+	
+	cert_dir=$mydir/certs
+	
+	if [ ! -d $cert_dir ]; then
+		mkdir -p $cert_dir
+	fi
+	
+	echo -e "\t创建CA"
+	#1.创建CA
+	openssl genrsa -des3 -passout pass:x -out $dashboard_dir/dashboard.pass.key 2048 > /dev/nul
+	
+	echo -e "\t创建私钥"
+	#2.创建私钥
+	openssl rsa -passin pass:x -in $dashboard_dir/dashboard.pass.key -out $dashboard_dir/dashboard.key > /dev/nul
+	
+	#3.创建CSR
+	openssl req -new -key $dashboard_dir/dashboard.key -days 3650 \
+	-subj "/O=system:masters/CN=kubernetes-admin" \
+	-config $mydir/openssl_dashboard.conf.cnf \
+	-out $dashboard_dir/dashboard.csr > /dev/nul
+	
+	echo -e "\t创建公钥"
+	
+	#4.签署CSR
+	openssl x509 -req -sha256 -days 365 -in $dashboard_dir/dashboard.csr \
+	-signkey $dashboard_dir/dashboard.key -out $dashboard_dir/dashboard.crt > /dev/nul
+	
+	#5.创建Secret对象kubernetes-dashboard-certs
+	cp -p $dashboard_dir/dashboard.crt $cert_dir/
+	cp -p $dashboard_dir/dashboard.key $cert_dir/
+
+	echo -e "\t创建secret对象kubernetes-dashboard-certs"
+	kubectl create secret generic kubernetes-dashboard-certs \
+	--from-file=$cert_dir -n kube-system > /dev/nul
+	
+	echo -e "\t创建账号并绑定"
+	#7.然后创建ServiceAccount:
+	kubectl create -f $mydir/serviceaccount.yaml > /dev/nul
+	
+	#8.创建ClusterRoleBinding:
+	kubectl create -f $mydir/rolebind.yaml > /dev/nul
+	
+	#打开防火墙的30705
+	
+	firewall-cmd --permanent --add-port=30705/tcp >/dev/nul
+	firewall-cmd --reload >/dev/nul
+	
+	#9.执行部署
+	echo -e "\t部署仪表盘"
+	
+	kubectl apply -f $mydir/kubernetes-dashboard.yaml > /dev/nul
+	
+		
+	
+	echo -e "\t检查仪表盘镜像的部署结果..."
+	li_sec=0
+	ls_status=error
+	
+	while [ $li_sec -le 60 ]
+	do
+		ls_status=`kubectl get pods -n kube-system |grep kubernetes-dashboard |gawk '{print $3}'`
+		
+		if [ $ls_status = 'Running' ]; then
+			break
+		else
+			#延迟5秒
+			sleep 5
+			li_sec=$(($li_sec+5))
+		fi
+		
+	done
+	
+	if [ $ls_status = 'Running' ]; then 
+	
+		echo
+		echo -e "\t安装dashboard插件成功"				
+	
+		#11.提示仪表盘的URL
+		ls_url="https://$ls_ip:30705"
+	
+		echo -e "\t1.仪表盘的URL是:"
+		echo -e "\t  $ls_url"
+	
+		#12.得到令牌Bearer Token
+		echo -e "\t2.令牌内容如下:"
+		kubectl -n kube-system describe secret $(kubectl -n kube-system get secret | grep admin-user | awk '{print $1}') |grep "token:"
+		
+		echo "install_dashboard" >>$stepfile
+	else
+		
+		echo
+		echo -e "\t安装dashboard插件疑是失败"
+		echo -e "\t请执行kubectl get pods -n kube-system命令来查看dashboard的状态"
+	fi
+		
+}
+
+#显示登录仪表盘需要的Token
+function show_token() {
+
+	#1.查找是否存在admin-user开头的secret
+	li_count=`kubectl -n kube-system get secret | grep admin-user | wc -l`
+	
+	if [ $li_count -eq 0 ]; then
+		echo
+		echo "未找到admin-user的安全对象。请确认已经正在安装了仪表盘"
+		echo
+		exit 1
+	else
+		echo
+		echo -e "\t4.令牌内容如下:"
+		kubectl -n kube-system describe secret $(kubectl -n kube-system get secret | grep admin-user | awk '{print $1}') |grep "token:"
+	fi
+}
+
+
 #---------------函数完毕-----------------
 
 
@@ -452,30 +737,79 @@ iscentos
 
 if [ $li_iscentos -eq 0 ]; then
 	echo
-	echo "\t当前操作系统不是CentOS，脚本不支持"
+	echo "\t本脚本只支持CentOS操作系统"
 	exit 1
-fi 
+fi
+
+
+#1.2检查当前目录下是否存在如下文件
 
 #[读取命令行参数]
+
 optspec=":h-:"
 while getopts "$optspec" optchar; do
 
     case "${optchar}" in
         -)
-        case "${OPTARG}" in                
+        case "${OPTARG}" in
+        				check)
+        					if [ $issetup -ge 0 ]; then
+                		echo 
+                		echo -e "\t不能带多个选项"
+                		exit 1
+                	fi
+                	
+                	issetup=0
+                  ;;
                 setup)
-                    issetup=1
-                    ;;
-                post_install)
-                		ispost_setup=1
-                		;;
-                check*)
-                    issetup=0
-                    ;;                
+                	if [ $issetup -ge 0 ]; then
+                		echo 
+                		echo -e "\t不能带多个选项"
+                		exit 1
+                	fi
+                	
+                  issetup=1
+                  ;;
+                post_setup)
+                	if [ $issetup -ge 0 ]; then
+                		echo 
+                		echo -e "\t不能带多个选项"
+                		exit 1
+                	fi
+                	
+                	issetup=2
+                	;;
+                install_flannel)
+                	if [ $issetup -ge 0 ]; then
+                		echo 
+                		echo -e "\t不能带多个选项"
+                		exit 1
+                	fi
+                	
+                	issetup=3
+                	;;
+                install_dashboard)
+                	if [ $issetup -ge 0 ]; then
+                		echo 
+                		echo -e "\t不能带多个选项"
+                		exit 1
+                	fi
+                	
+                	issetup=4
+                	;;
+                show_token)
+                	if [ $issetup -ge 0 ]; then
+                		echo 
+                		echo -e "\t不能带多个选项"
+                		exit 1
+                	fi
+                	
+                	issetup=5                	                	
+                	;;
                 help*)
-                		print_usage
-                		exit
-                		;;                
+                	print_usage
+                	exit
+                	;;                
                 *)
 										echo                 	
                     echo -e "\t不支持的选项 --${OPTARG}" >&2
@@ -488,10 +822,7 @@ while getopts "$optspec" optchar; do
             exit
             ;;       
         *)
-        	  #echo abcde:-$OPTARG
-        	#echo "OPTARG:${OPTARG},optchar:${optchar}"
-        		
-            if [ "$OPTERR" != 1 ] || [ "${optspec:0:1}" = ":" ]; then
+        	  if [ "$OPTERR" != 1 ] || [ "${optspec:0:1}" = ":" ]; then
             	  echo 
                 echo "	不支持的参数: '-${OPTARG}'" >&2
                 print_usage
@@ -501,9 +832,10 @@ while getopts "$optspec" optchar; do
     esac
 done
 
+
 #2.如果参数为setup,则执行设置操作
 #3.如果参数为check,则执行检查操作
-if [ $issetup -gt 0 ]; then
+if [ $issetup -ge 0 ]; then
 case $issetup in
 0)
 	check_env
@@ -511,18 +843,24 @@ case $issetup in
 1)
 	setup_env
 	;;
+2)
+	post_setup
+	;;
+3)
+	install_flannel
+	;;
+4)
+	install_dashboard
+	;;
+5)
+	show_token
+	;;
 *)
 	check_env
 	print_usage
 	;;
 esac
-
 else
- if [ $ispost_setup -eq 1 ]; then
- 	 post_setup
- else
-   check_env
-	 print_usage
- fi
- 
+	#check_env
+	print_usage
 fi

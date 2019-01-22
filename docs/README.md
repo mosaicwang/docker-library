@@ -2,6 +2,10 @@
 
 kubernetes 相关 images 同步
 
+# 2019.1.22
+1.重新打包所需的文件
+2.修改k8s_setup.sh:新增开放flannel的端口
+
 # 2019.1.18
 
 -新增k8s_setup脚本
