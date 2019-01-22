@@ -125,14 +125,14 @@ echo -e "\t禁止swap"
 #2.开放端口
 #master:TCP:6443,2379-2380,10250-10252
 #Worder:TCP:10250,30000-32767
-firewall-cmd --permanent --add-port=6443/tcp >/dev/nul
-firewall-cmd --permanent --add-port=2379-2380/tcp >/dev/nul
-firewall-cmd --permanent --add-port=10250-10252/tcp >/dev/nul
-firewall-cmd --permanent --add-port=30000-32767/tcp >/dev/nul
+#firewall-cmd --permanent --add-port=6443/tcp >/dev/nul
+#firewall-cmd --permanent --add-port=2379-2380/tcp >/dev/nul
+#firewall-cmd --permanent --add-port=10250-10252/tcp >/dev/nul
+#firewall-cmd --permanent --add-port=30000-32767/tcp >/dev/nul
 #FLANNEL #vxlan:8472/udp; udp:8285/udp
-firewall-cmd --permanent --add-port=8472/udp >/dev/nul
-firewall-cmd --permanent --add-port=8285/udp >/dev/nul
-firewall-cmd --reload >/dev/nul
+#firewall-cmd --permanent --add-port=8472/udp >/dev/nul
+#firewall-cmd --permanent --add-port=8285/udp >/dev/nul
+#firewall-cmd --reload >/dev/nul
 
 
 
@@ -497,8 +497,11 @@ done
 #预先修改.bashrc文件的内容
 echo "export KUBECONFIG=/etc/kubernetes/admin.conf " >>~/.bashrc
 echo "source <(kubectl completion bash)" >>~/.bashrc
-source ~/.bashrc
-~/.bashrc
+
+#如果.bashrc为非可执行文件,则赋予可执行权限
+if [ ! -x /root/.bashrc ]; then
+	chmod +x /root/.bashrc
+fi
 
 echo "post_setup" >>$stepfile
 
@@ -648,8 +651,8 @@ function install_dashboard() {
 	
 	#打开防火墙的30705
 	
-	firewall-cmd --permanent --add-port=30705/tcp >/dev/nul
-	firewall-cmd --reload >/dev/nul
+	#firewall-cmd --permanent --add-port=30705/tcp >/dev/nul
+	#firewall-cmd --reload >/dev/nul
 	
 	#9.执行部署
 	echo -e "\t部署仪表盘"
