@@ -2,6 +2,11 @@
 
 kubernetes 相关 images 同步
 
+#2019.1.23
+新增部署consul的脚本:consul_setup.sh
+
+考虑到打包文件大，因此没有上传打包文件
+
 # 2019.1.22
 1.重新打包所需的文件
 2.修改k8s_setup.sh:禁用防火墙
