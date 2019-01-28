@@ -63,6 +63,7 @@ echo "\
 	--install_flannel   安装flannel插件
 	--install_dashboard 安装仪表盘
 	--show_token				显示登录仪表盘需要的TOKEN值
+	--show_join         显示加入MASTER的kubeam join命令
 	--help              显示脚本的用法
 	"
 }
@@ -483,16 +484,24 @@ sed -i 's/ttl: 24h0m0s/ttl: "0"/' $mydir/kubeadm.conf
 kubeadm config images pull --config $mydir/kubeadm.conf > /dev/nul
 
 ls_images=(apiserver controller-manager proxy scheduler coredns etcd pause)
+li_miss=0
 #3.4检查镜像文件是否拉取成功
-for ls_curimage in $ls_images
+for ls_curimage in ${ls_images[@]}
 do
 	li_count=`docker images |grep ${ls_curimage} |wc -l`
 	
 	if [ $li_count -eq 0 ]; then
-		echo -e "\t缺少${ls_curimage}镜像"
+		li_miss=$(($li_miss+1))
+		echo -e "\t  缺少${ls_curimage}镜像"
 	fi
 
 done
+
+if [ $li_miss -gt 0 ]; then
+	echo
+	echo -e "\t拉取镜像失败。请重新执行--post_setup操作"
+	exit 1
+fi
 
 #预先修改.bashrc文件的内容
 echo "export KUBECONFIG=/etc/kubernetes/admin.conf " >>~/.bashrc
@@ -722,6 +731,28 @@ function show_token() {
 	fi
 }
 
+#显示加入MASTER的kubeadm join命令
+function show_join() {
+
+#1.从myhost.cfg得到master的IP地址
+ls_ip=`cat $mydir/myhost.cfg |grep ip|gawk -F = '{print $2}'`
+
+#2.从命令kubeadm token list得到TOKEN的ID:abcdef.0123456789abcdef
+ls_tokenid=`kubeadm token list |grep abcdef |gawk '{print $1}'`
+
+#3.从命令得到ca证书的discovery-token-ca-cert-hash
+ls_hash=`openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | \
+openssl rsa -pubin -outform der 2>/dev/null | \
+openssl dgst -sha256 -hex | sed 's/^.* //'`
+
+#4.合成结果字符串:
+ls_joincmd="kubeadm join $ls_ip:6443 --token $ls_tokenid --discovery-token-ca-cert-hash sha256:$ls_hash"
+
+echo
+echo -e "\t 加入MASTER的kubeadm join命令如下:"
+echo -e "\t $ls_joincmd"
+echo
+}
 
 #---------------函数完毕-----------------
 
@@ -809,6 +840,15 @@ while getopts "$optspec" optchar; do
                 	
                 	issetup=5                	                	
                 	;;
+                show_join)
+                  if [ $issetup -ge 0 ]; then
+                		echo 
+                		echo -e "\t不能带多个选项"
+                		exit 1
+                	fi
+                	
+                	issetup=6             	                	
+                	;;
                 help*)
                 	print_usage
                 	exit
@@ -857,6 +897,9 @@ case $issetup in
 	;;
 5)
 	show_token
+	;;
+6)
+	show_join
 	;;
 *)
 	check_env

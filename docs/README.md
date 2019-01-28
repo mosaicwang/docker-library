@@ -2,6 +2,11 @@
 
 kubernetes 相关 images 同步
 
+#2019.1.29
+1.`k8s_setup.sh` 新增命令行参数` --show_join `用于显示非MASTER节点加入时的命令
+
+2.修改BUG
+
 #2019.1.23
 新增部署consul的脚本:consul_setup.sh
 
