@@ -68,6 +68,28 @@ echo "\
 	"
 }
 
+#判断当前是否为MASTER节点
+function ismaster() {
+
+	li_count=`cat $cfgfile |grep "MASTER=" |wc -l`
+	
+	#未设置
+	if [ $li_count -eq 0 ]; then
+		return 200
+	fi
+	
+	li_count=`cat $cfgfile |grep "MASTER=Y" |wc -l`
+	
+	#非MASTER
+	if [ $li_count -eq 0 ]; then
+		return 100
+	else
+		return 0
+	fi
+
+}
+
+#设置基础参数
 function setup_env() {
 
 	#如果步骤信息中已经存在当前步骤，则报错并退出
@@ -138,8 +160,8 @@ echo -e "\t禁止swap"
 
 
 #禁用防火墙
-systemctl stop firewalld >/dev/nul
-systemctl disable firewalld >/dev/nul
+systemctl stop firewalld >/dev/nul 2>&1
+systemctl disable firewalld >/dev/nul 2>&1
 
 echo -e "\t禁用防火墙"
 
@@ -230,18 +252,29 @@ chmod +x /etc/rc.modules
 echo -e "\t装载ip_vs模块"
 
 #7.安装docker必须的软件
-echo -e "\t安装Docker-ce-18.06.1..."
+echo -e "\t安装基础包..."
 
 yum makecache fast > /dev/nul
-yum install -y -q curl net-tools telnet yum-utils psmisc unzip expect rsync chrony bash-completion ebtables ethtool wget socat > /dev/nul
-yum install -y -q ipset ipvsadm > /dev/nul
-yum install -y -q yum-utils device-mapper-persistent-data lvm2 > /dev/nul
+
+#判断更新缓存是否成功
+li_count=`echo $?`
+
+if [ $li_count -gt 0 ]; then
+	echo
+	echo -e "\t更新YUM缓存失败。请重新执行"
+	echo
+	exit 1
+fi
+
+yum install -y -q curl net-tools telnet yum-utils psmisc unzip expect rsync chrony bash-completion ebtables ethtool wget socat > /dev/nul 2>&1
+yum install -y -q ipset ipvsadm > /dev/nul 2>&1
+yum install -y -q yum-utils device-mapper-persistent-data lvm2 > /dev/nul 2>&1
 
 #7.1设置NTP
 myanswer=n
 
 echo
-read -p "是否设置NTP服务器为$ntp_server ?(Y/N)" myanswer
+read -p "        是否设置NTP服务器为$ntp_server ?(Y/N)" myanswer
 
 if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
 
@@ -257,20 +290,22 @@ if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
 	sed -i '/server 2.centos/ s/^/#/' /etc/chrony.conf
 	sed -i '/server 3.centos/ s/^/#/' /etc/chrony.conf
 
-	echo "NTP服务器是:$ntp_server"
+	echo -e "\tNTP服务器是:$ntp_server"
 fi
 
 #8.安装docker
+
+echo -e "\t安装Docker-ce-18.06.1..."
 
 wget https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo \
  -O /etc/yum.repos.d/docker-ce.repo -q
 
 yum makecache fast > /dev/nul
 
-yum install -y -q docker-ce-18.06.1.ce-3.el7 > /dev/nul
+yum install -y -q docker-ce-18.06.1.ce-3.el7 > /dev/nul 2>&1
 
-systemctl enable docker
-systemctl start docker
+systemctl enable docker > /dev/nul 2>&1
+systemctl start docker > /dev/nul 2>&1
 
 echo -e "\t安装Docker-ce-18.06.1完毕"
 
@@ -435,6 +470,15 @@ fi
 
 myip=`cat $cfgfile | grep ip|gawk -F '=' '{print $2}'`
 
+#询问是否为MASTER节点
+echo
+read -p "        当前是否为MASTER节点(Y/N)?" myanswer
+
+if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
+	echo "MASTER=Y" >> $cfgfile
+else
+	echo "MASTER=N" >> $cfgfile
+fi
 
 #1.设置kubernetes仓库
 echo -e "\t安装kubeadm ${k8s_ver} 的3个核心组件..."
@@ -451,9 +495,9 @@ EOF
 
 yum makecache fast > /dev/nul
 
-yum install -y -q kubeadm kubectl kubelet > /dev/nul
+yum install -y -q kubeadm kubectl kubelet > /dev/nul 2>&1
 
-systemctl enable kubelet > /dev/nul
+systemctl enable kubelet > /dev/nul 2>&1
 
 echo -e "\t安装kubeadm的3个核心组件完毕"
 
@@ -516,11 +560,24 @@ echo "post_setup" >>$stepfile
 
 echo -e "\t拉取k8s基础镜像完毕"
 
-echo
-echo -e "\t部署MASTER节点执行:"
-echo
-echo -e "\tsource ~/.bashrc" 
-echo -e "\tkubeadm init --config $mydir/kubeadm.conf"
+if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
+	echo
+	echo -e "\t部署MASTER节点执行如下命令:"
+	echo
+	echo -e "\tsource ~/.bashrc" 
+	echo -e "\tkubeadm init --config $mydir/kubeadm.conf"
+else
+	echo -e "\t非MASTER节点装载flannel镜像..."	
+	docker load --input $mydir/flannel_v0.10.0-amd64.tar > /dev/nul
+	
+	echo
+	echo -e "\t部署非MASTER节点执行如下命令:"
+	echo
+	echo -e "\tsource ~/.bashrc" 
+	echo -e "\t执行kubeadm join .... 加入集群"
+	echo -e "\t或在MASTER节点执行k8s_setup --show_join 得到加入集群的完整命令"
+fi
+
 echo
 
 }
@@ -538,6 +595,57 @@ function install_flannel() {
 			echo
 			exit 1
 		fi
+	fi
+	
+	#判断是否有环境变量KUBECONFIG
+	local ls_str=`echo $KUBECONFIG`
+	
+	if [ -z $ls_str ]; then
+		echo
+		echo -e "\t未找到环境变量\$KUBECONFIG.请确认是否执行source ~/.bashrc"
+		echo
+		exit 1
+	fi
+	
+	#判断是否已经安装且启动了K8s集群
+	ls_pods=(etcd kube-apiserver kube-controller-manager kube-proxy kube-scheduler)
+	li_miss=0
+	
+	for ls_curpod in ${ls_pods[@]}
+	do
+	
+		li_count=`kubectl get pods -n kube-system |grep $ls_curpod |wc -l`
+		
+		#echo "pod:$ls_curpod,count:$li_count"
+	
+		if [ $li_count -eq 0 ]; then
+			echo
+			echo -e "\t未发现核心POD:$ls_curpod"
+			li_miss=$(($li_miss+1))
+		fi
+	
+	done
+	
+	#echo "end for,miss=$li_miss"
+	
+	if [ $li_miss -gt 0 ]; then
+			echo
+			echo -e "\tK8s集群的核心POD未启动完毕，请稍候安装FLANNEL"
+			exit 1
+	fi
+			
+	
+	#判断是否为MASTER节点
+	ismaster
+	
+	li_count=`echo $?`
+	
+	#如果
+	if [ $li_count -gt 0 ]; then
+		echo
+		echo -e "\tMASTER节点才需要安装FLANNEL插件"
+		echo
+		exit 0
 	fi
 	
 	echo -e "\t安装flannel插件..."
@@ -578,8 +686,18 @@ function install_flannel() {
 		
 	done
 	
-	if [ $ls_status = 'Running' ]; then 
+	local li_podstatus=1
 	
+	li_podstatus=`kubectl get pods -n kube-system |gawk '{print $3}' |grep -v STATUS|grep -v Running|wc -l`
+	
+	if [ $li_podstatus -gt 0 ]; then
+		echo
+		echo -e "\t有核心POS未就绪。执行 kubectl get pods -n kube-system 查看结果"
+		echo
+	fi
+	
+	if [ $ls_status = 'Running' ] && [ $li_podstatus -eq 0 ]; then 
+		
 		echo -e "\t安装flannel插件成功"
 	
 		echo "install_flannel" >>$stepfile
@@ -605,6 +723,29 @@ function install_dashboard() {
 			echo
 			exit 1
 		fi
+	fi
+	
+	#判断是否已经安装且启动了K8s集群
+	li_count=`docker ps |grep apiserver|wc -l`
+	
+	if [ $li_count -eq 0 ]; then
+			echo
+			echo -e "\t未发现K8s集群。请确认是否执行了  kubeadm init --config $mydir/kubeadm.conf"
+			echo
+			exit 1
+	fi
+	
+	#判断是否为MASTER节点
+	ismaster
+	
+	li_count=`echo $?`
+	
+	#如果
+	if [ $li_count -gt 0 ]; then
+		echo
+		echo -e "\tMASTER节点才需要安装仪表盘"
+		echo
+		exit 0
 	fi
 	
 	echo -e "\t安装仪表盘..."
@@ -733,6 +874,19 @@ function show_token() {
 
 #显示加入MASTER的kubeadm join命令
 function show_join() {
+
+	#判断是否为MASTER节点
+	ismaster
+	
+	li_count=`echo $?`
+	
+	#如果
+	if [ $li_count -gt 0 ]; then
+		echo
+		echo -e "\t请在MASTER节点执行本命令"
+		echo
+		exit 0
+	fi
 
 #1.从myhost.cfg得到master的IP地址
 ls_ip=`cat $mydir/myhost.cfg |grep ip|gawk -F = '{print $2}'`
