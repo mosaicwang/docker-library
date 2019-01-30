@@ -108,7 +108,13 @@ function setup_env() {
 	echo -e "\t开始设置..."
 	
 	#1.2得到本机IP和网卡，由用户确认后保存到myhost.cfg文件
-	ls_ip=`ip -h -4 -o address |gawk '{print $4}' |grep -v 127.0|sed 's/\// /'|gawk '{print $1}'`
+	#1.2.1得到物理网卡名称
+	ls_iface=`ls -l /sys/class/net/ |grep -v virtual |grep root|gawk '{print $9}'`
+	
+	#根据网卡名称得到IP地址
+	#ls_ip=`ip -h -4 -o address |gawk '{print $4}' |grep -v 127.0|sed 's/\// /'|gawk '{print $1}'`
+	ls_ip=`ip -h -4 -o address |grep $ls_iface|gawk '{print $4}'|sed 's/\// /'|gawk '{print $1}'`
+	
 	
 	echo
 	read -p "        本机的IP地址是$ls_ip吗?(Y/N)" myanswer
@@ -119,10 +125,17 @@ function setup_env() {
 		echo -e "\t无法得到本机IP地址。程序退出"
 		exit 1
 	fi
-	
-	#根据IP地址得到网卡名称
-	ls_iface=`ip -h -4 -o address | grep $ls_ip |gawk '{print $2}'`
+		
 	echo "iface=$ls_iface" >> $cfgfile
+	
+	#得到product_uuid
+	ls_uuid=`cat /sys/class/dmi/id/product_uuid`
+	echo "PRODUCT_UUID=$ls_uuid" >> $cfgfile
+	
+	#得到MAC地址
+	ls_mac=`cat /sys/class/net/$ls_iface/address`
+	echo "MAC=$ls_mac" >> $cfgfile
+		
 
 #如果未设置DNS，则设置
 li_count=`cat /etc/resolv.conf |grep nameserver|wc -l`
