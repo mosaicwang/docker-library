@@ -2,6 +2,11 @@
 
 kubernetes 相关 images 同步
 
+# 2019.3.22
+1. 拉取指定版本的kubeadm,使kubeadm和镜像版本一致
+2. 增加ELK需要的环境设置
+3. 新版镜像太大，不再上传到github
+
 #2019.1.29
 1.`k8s_setup.sh` 新增命令行参数` --show_join `用于显示非MASTER节点加入时的命令
 

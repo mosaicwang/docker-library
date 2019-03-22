@@ -1,11 +1,13 @@
 #!/usr/bin/bash
 
 #在kubeadm初始化k8s集群前，设置必要的环境和参数
-#2018.1.18 11:07 v1.2
+#2019.2.21 help提示增加适用的节点;安装tree包;非MASTER节点安装NFS客户端
+#2018.1.31 11:21 v1.3
 #2018.1.18 0:17 v1.1
 
-k8s_ver=v1.13.2
+k8s_ver=1.13.2
 ntp_server=192.168.1.8
+flannel_ver=v0.10.0
 
 issetup=-1
 
@@ -58,12 +60,12 @@ echo "\
 	OPTIONS如下:
 	
 	--check             检查系统配置情况(缺省)
-	--setup             设置基础参数
-	--post_setup        安装kubeadm等关键组件
-	--install_flannel   安装flannel插件
-	--install_dashboard 安装仪表盘
-	--show_token				显示登录仪表盘需要的TOKEN值
-	--show_join         显示加入MASTER的kubeam join命令
+	--setup             设置基础参数 (适用于所有节点)
+	--post_setup        安装kubeadm等关键组件 (适用于所有节点)
+	--install_flannel   安装flannel插件 (适用于MASTER节点)
+	--install_dashboard 安装仪表盘 (适用于MASTER节点)
+	--show_token        显示登录仪表盘需要的TOKEN值 (适用于MASTER节点)
+	--show_join         显示加入MASTER的kubeam join命令 (适用于MASTER节点)
 	--help              显示脚本的用法
 	"
 }
@@ -87,6 +89,42 @@ function ismaster() {
 		return 0
 	fi
 
+}
+
+#MASTER防火墙设置
+function master_set_fw() {
+	#2.开放端口
+	#master:TCP:6443,2379-2380,10250-10252
+	#Worker:TCP:10250,30000-32767
+	
+	firewall-cmd --permanent --add-port=6443/tcp >/dev/nul
+	firewall-cmd --permanent --add-port=2379-2380/tcp >/dev/nul
+	firewall-cmd --permanent --add-port=10250-10252/tcp >/dev/nul
+	
+	#FLANNEL #vxlan:8472/udp; udp:8285/udp
+	firewall-cmd --permanent --add-port=8472/udp >/dev/nul	
+	firewall-cmd --reload >/dev/nul
+
+	#禁用防火墙
+	#systemctl stop firewalld >/dev/nul 2>&1
+	#systemctl disable firewalld >/dev/nul 2>&1
+
+	echo -e "\t开放防火墙端口1"
+}
+
+#非MASTER防火墙设置
+function worker_set_fw() {
+
+	#Worker:TCP:10250,30000-32767
+	firewall-cmd --permanent --add-port=10250/tcp >/dev/nul
+	firewall-cmd --permanent --add-port=30000-32767/tcp >/dev/nul
+	
+	#FLANNEL #vxlan:8472/udp; udp:8285/udp
+	firewall-cmd --permanent --add-port=8472/udp >/dev/nul	
+	
+	firewall-cmd --reload >/dev/nul
+	
+	echo -e "\t开放防火墙端口2"
 }
 
 #设置基础参数
@@ -158,26 +196,6 @@ sed -i '/swap/ s/^/#/' /etc/fstab
 
 echo -e "\t禁止swap"
 
-#2.开放端口
-#master:TCP:6443,2379-2380,10250-10252
-#Worder:TCP:10250,30000-32767
-#firewall-cmd --permanent --add-port=6443/tcp >/dev/nul
-#firewall-cmd --permanent --add-port=2379-2380/tcp >/dev/nul
-#firewall-cmd --permanent --add-port=10250-10252/tcp >/dev/nul
-#firewall-cmd --permanent --add-port=30000-32767/tcp >/dev/nul
-#FLANNEL #vxlan:8472/udp; udp:8285/udp
-#firewall-cmd --permanent --add-port=8472/udp >/dev/nul
-#firewall-cmd --permanent --add-port=8285/udp >/dev/nul
-#firewall-cmd --reload >/dev/nul
-
-
-
-#禁用防火墙
-systemctl stop firewalld >/dev/nul 2>&1
-systemctl disable firewalld >/dev/nul 2>&1
-
-echo -e "\t禁用防火墙"
-
 #3.设置SELinux在permissive模式
 if [ -f /etc/selinux/config.$ls_curdate ];then
 	rm -f /etc/selinux/config
@@ -232,7 +250,7 @@ if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
 fi
 
 #本机ip
-ls_ip=`ip -h -4 -o address |gawk '{print $4}' |grep -v 127.0|sed 's/\// /'|gawk '{print $1}'`
+#ls_ip=`ip -h -4 -o address |grep $ls_iface|gawk '{print $4}'|sed 's/\// /'|gawk '{print $1}'`
 ls_hostname=`hostname`
 
 
@@ -267,6 +285,14 @@ echo -e "\t装载ip_vs模块"
 #7.安装docker必须的软件
 echo -e "\t安装基础包..."
 
+#用阿里云替换现有仓库
+if [ ! -d /etc/yum.repos.d/bak ]; then
+	mkdir /etc/yum.repos.d/bak
+fi
+
+mv -f /etc/yum.repos.d/CentOS-*.repo /etc/yum.repos.d/bak/
+cp -pf $mydir/CentOS-aliyun.repo /etc/yum.repos.d/CentOS-aliyun.repo
+
 yum makecache fast > /dev/nul
 
 #判断更新缓存是否成功
@@ -279,7 +305,8 @@ if [ $li_count -gt 0 ]; then
 	exit 1
 fi
 
-yum install -y -q curl net-tools telnet yum-utils psmisc unzip expect rsync chrony bash-completion ebtables ethtool wget socat > /dev/nul 2>&1
+yum install -y -q curl net-tools telnet yum-utils psmisc unzip expect rsync chrony bash-completion ebtables ethtool wget socat tree > /dev/nul 2>&1
+yum install -y -q bind bind-chroot bind-utils traceroute tcpdump
 yum install -y -q ipset ipvsadm > /dev/nul 2>&1
 yum install -y -q yum-utils device-mapper-persistent-data lvm2 > /dev/nul 2>&1
 
@@ -484,13 +511,18 @@ fi
 myip=`cat $cfgfile | grep ip|gawk -F '=' '{print $2}'`
 
 #询问是否为MASTER节点
+local li_ismaster=0
 echo
 read -p "        当前是否为MASTER节点(Y/N)?" myanswer
 
 if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
 	echo "MASTER=Y" >> $cfgfile
+	master_set_fw
+	li_ismaster=1
 else
 	echo "MASTER=N" >> $cfgfile
+	worker_set_fw
+	li_ismaster=0
 fi
 
 #1.设置kubernetes仓库
@@ -508,11 +540,23 @@ EOF
 
 yum makecache fast > /dev/nul
 
-yum install -y -q kubeadm kubectl kubelet > /dev/nul 2>&1
+yum install -y -q kubeadm-${k8s_ver} kubectl-${k8s_ver} kubelet-${k8s_ver} > /dev/nul 2>&1
 
 systemctl enable kubelet > /dev/nul 2>&1
 
 echo -e "\t安装kubeadm的3个核心组件完毕"
+
+#如果是Worker节点,则安装nfs-utils包,并设置服务rpcbind为enable并启动
+
+if [ $li_ismaster -eq 0 ];then
+	
+	yum install -y -q nfs-utils > /dev/nul 2>&1
+	
+	systemctl enable rpcbind.service
+	systemctl start rpcbind.service
+	
+	echo -e "\t安装NFS客户端完毕"
+fi
 
 #2.装载pause镜像
 
@@ -580,8 +624,15 @@ if [ $myanswer = 'Y' ] || [ $myanswer = 'y' ]; then
 	echo -e "\tsource ~/.bashrc" 
 	echo -e "\tkubeadm init --config $mydir/kubeadm.conf"
 else
-	echo -e "\t非MASTER节点装载flannel镜像..."	
-	docker load --input $mydir/flannel_v0.10.0-amd64.tar > /dev/nul
+	echo -e "\t非MASTER节点装载flannel ${flannel_ver}的镜像..."
+	#判断是否存在flannel镜像文件
+	if [ ! -f $mydir/flannel_${flannel_ver}-amd64.tar ]; then
+		echo
+		echo -e "\t没有找到FLANNEL ${flannel_ver}的镜像文件:flannel_${flannel_ver}-amd64.tar"
+		echo		
+	else
+		docker load --input $mydir/flannel_${flannel_ver}-amd64.tar > /dev/nul	
+	fi
 	
 	echo
 	echo -e "\t部署非MASTER节点执行如下命令:"
@@ -616,6 +667,14 @@ function install_flannel() {
 	if [ -z $ls_str ]; then
 		echo
 		echo -e "\t未找到环境变量\$KUBECONFIG.请确认是否执行source ~/.bashrc"
+		echo
+		exit 1
+	fi
+	
+	#判断是否存在flannel镜像文件
+	if [ ! -f $mydir/flannel_${flannel_ver}-amd64.tar ]; then
+		echo
+		echo -e "\t没有找到FLANNEL ${flannel_ver}的镜像文件:flannel_${flannel_ver}-amd64.tar"
 		echo
 		exit 1
 	fi
@@ -668,12 +727,13 @@ function install_flannel() {
 	#修改kube-flannel.yml中的iface值
 	cp $mydir/kube-flannel.yml.old $mydir/kube-flannel.yml
 	
-	sed -i "/iface/ s/iface=wht/iface=${ls_iface}/" $mydir/kube-flannel.yml
+	#2019.1.30屏蔽如下，让FLANNEL自动查找
+	#sed -i "/iface/ s/iface=wht/iface=${ls_iface}/" $mydir/kube-flannel.yml
 	
 	#装载镜像
 	echo -e "\t装载flannel镜像..."
 	
-	docker load --input $mydir/flannel_v0.10.0-amd64.tar > /dev/nul
+	docker load --input $mydir/flannel_${flannel_ver}-amd64.tar > /dev/nul
 	
 	#执行部署
 	echo -e "\t部署flannel镜像..."
@@ -705,7 +765,7 @@ function install_flannel() {
 	
 	if [ $li_podstatus -gt 0 ]; then
 		echo
-		echo -e "\t有核心POS未就绪。执行 kubectl get pods -n kube-system 查看结果"
+		echo -e "\t有核心POD未就绪。执行 kubectl get pods -n kube-system 查看结果"
 		echo
 	fi
 	
