@@ -2,6 +2,40 @@
 
 kubernetes 相关 images 同步
 
+# 2019.3.22
+1. 拉取指定版本的kubeadm,使kubeadm和镜像版本一致
+2. 增加ELK需要的环境设置
+3. 新版镜像太大，不再上传到github
+
+#2019.1.29
+1.`k8s_setup.sh` 新增命令行参数` --show_join `用于显示非MASTER节点加入时的命令
+
+2.修改BUG
+
+#2019.1.23
+新增部署consul的脚本:consul_setup.sh
+
+考虑到打包文件大，因此没有上传打包文件
+
+# 2019.1.22
+1.重新打包所需的文件
+2.修改k8s_setup.sh:禁用防火墙
+
+# 2019.1.18
+
+-新增k8s_setup脚本
+此脚本基于Centos7,能自动设置部署k8s的基础环境
+
+	检查当前操作系统的配置情况
+	./k8s_setup --check
+	
+	安装基础包和docker
+	./k8s_setup --setup
+	
+	在安装了基础包和docker后，安装kubeadm，并拉取基础镜像
+	./k8s_setup --post_install
+
+
 # 2018.12.4
 - 新增 node-problem-detector
 
