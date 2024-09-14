@@ -3,7 +3,7 @@ LABEL maintainer="V2Fly Community <dev@v2fly.org>"
 
 WORKDIR /tmp
 ARG TARGETPLATFORM
-ARG TAG
+ARG TAG=v5.17.1
 COPY v2ray.sh "${WORKDIR}"/v2ray.sh
 
 RUN set -ex \
